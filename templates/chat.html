@@ -1,133 +1,83 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WhatsApp Chat</title>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
-    />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
     <style>
-      body {
-        background-color: #e5ddd5;
-        font-family: Arial, sans-serif;
-      }
-      .chat-container {
-        max-width: 600px;
-        margin: 50px auto;
-        padding: 20px;
-        background-color: #fff;
-        border-radius: 8px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-        height: 500px;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column-reverse;
-      }
-      .bubble {
-        max-width: 75%;
-        padding: 10px 15px;
-        margin: 5px 0;
-        border-radius: 20px;
-        word-wrap: break-word;
-      }
-      .sent {
-        background-color: #dcf8c6;
-        align-self: flex-end;
-      }
-      .received {
-        background-color: #fff;
-        align-self: flex-start;
-      }
-      .timestamp {
-        font-size: 0.75rem;
-        color: #999;
-        text-align: right;
-        margin-top: 5px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1 class="text-2xl font-bold mb-4 text-center">WhatsApp Chat</h1>
-    <div class="chat-container" id="chatContainer"></div>
-
-    <script>
-      let offset = 0; // Tracks how many messages have been loaded
-      const limit = 25; // Load 25 messages per chunk
-      const chatContainer = document.getElementById("chatContainer");
-
-      // Fetch messages from the server
-      async function loadMessages() {
-        const response = await fetch(
-          `/messages?offset=${offset}&limit=${limit}`,
-        );
-        const data = await response.json();
-        return data.messages;
-      }
-
-      // Render messages inside the chat container
-      function renderMessages(messages, prepend = false) {
-        messages.forEach((message) => {
-          const msgDiv = document.createElement("div");
-          msgDiv.classList.add(
-            "bubble",
-            message.sender === "You" ? "sent" : "received",
-            "mb-2",
-          );
-
-          msgDiv.innerHTML = `
-            <div class="${
-              message.sender === "You" ? "text-right" : "text-left"
-            }">
-              <strong>${message.sender}</strong>: <span>${
-                message.message
-              }</span>
-            </div>
-            ${
-              message.media
-                ? `<img src="/chat_uploads/${message.media}" alt="Media" class="max-w-xs rounded-lg mt-1" />`
-                : ""
-            }
-            <div class="text-gray-500 text-sm">${new Date(
-              message.timestamp,
-            ).toLocaleString()}</div>
-          `;
-
-          if (prepend) {
-            chatContainer.prepend(msgDiv); // Prepend for older messages
-          } else {
-            chatContainer.append(msgDiv); // Append for initial load
-          }
-        });
-      }
-
-      // Scroll to bottom on initial load
-      function scrollToBottom() {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }
-
-      // Load initial messages and scroll to bottom
-      async function initChat() {
-        const messages = await loadMessages();
-        renderMessages(messages);
-        scrollToBottom();
-      }
-
-      // Detect scroll to top for loading older messages
-      chatContainer.addEventListener("scroll", async () => {
-        if (chatContainer.scrollTop === 0) {
-          offset += limit; // Update offset
-          const olderMessages = await loadMessages();
-          if (olderMessages.length > 0) {
-            renderMessages(olderMessages, true); // Prepend older messages
-            chatContainer.scrollTop = 0; // Keep the scroll position
-          }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #e5ddd5;
+            margin: 0;
+            padding: 20px;
+            height: 100vh;
+            overflow-y: auto;
         }
-      });
 
-      // Initialize chat on page load
-      initChat();
-    </script>
-  </body>
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        .chat-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 10px;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            max-height: 80vh;
+        }
+
+        .message {
+            display: flex;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 15px;
+            max-width: 70%;
+            position: relative;
+        }
+
+        .sender {
+            background-color: #dcf8c6;
+            margin-left: auto; /* Align to the right */
+        }
+
+        .receiver {
+            background-color: #ffffff;
+            margin-right: auto; /* Align to the left */
+        }
+
+        .message img {
+            max-width: 200px;
+            margin-top: 5px;
+            border-radius: 5px;
+        }
+
+        .timestamp {
+            font-size: 0.8em;
+            color: #888;
+            position: absolute;
+            bottom: -20px;
+            right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat Messages</h1>
+    <div class="chat-container">
+        {% for message in messages %}
+            <div class="message {{ 'sender' if message.sender == 'You' else 'receiver' }}">
+                <div>
+                    <strong>{{ message.sender }}:</strong> {{ message.message }} <br>
+                    {% if message.media_url %}
+                        <img src="{{ message.media_url }}" alt="Media">
+                    {% endif %}
+                    <div class="timestamp">{{ message.timestamp }}</div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</body>
 </html>

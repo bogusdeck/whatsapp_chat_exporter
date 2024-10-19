@@ -1,50 +1,52 @@
-from fastapi import FastAPI, File, UploadFile, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+import os
+from fastapi import FastAPI, File, UploadFile, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import zipfile
-import re
-from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore
+import datetime
+import shutil
 from dotenv import load_dotenv
-import os
+import firebase_admin
+from firebase_admin import credentials, firestore, storage
+from .utils import parse_chat
+from fastapi.staticfiles import StaticFiles
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
+
+# Initialize Firebase Admin SDK
+service_account_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+if not service_account_path or not Path(service_account_path).is_file():
+    raise FileNotFoundError("Service account key JSON not found. Check the path in your .env file.")
+
+cred = credentials.Certificate(service_account_path)
+firebase_admin.initialize_app(cred, {
+    "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET")
+})
+
+# Initialize Firestore and Storage clients
+db = firestore.client()
+bucket = storage.bucket()
 
 app = FastAPI()
 
-# Initialize Firebase Admin SDK with the credentials from environment variables
-cred = credentials.Certificate({
-    "type": "service_account",
-    "project_id": os.getenv("FIREBASE_PROJECT_ID"),
-    "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),  # Ensure to format your private key correctly
-    "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),
-    "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
-    "client_id": os.getenv("FIREBASE_CLIENT_ID"),
-    "auth_uri": os.getenv("FIREBASE_AUTH_URI"),
-    "token_uri": os.getenv("FIREBASE_TOKEN_URI"),
-    "auth_provider_x509_cert_url": os.getenv("FIREBASE_AUTH_PROVIDER_CERT_URL"),
-    "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_CERT_URL"),
-})
-
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-# Configure templates
+# Configure templates and upload folder
 templates = Jinja2Templates(directory="templates")
 UPLOAD_FOLDER = Path("chat_uploads")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 
 # Mount static directories
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.get("/", response_class=HTMLResponse)
 async def home() -> HTMLResponse:
+    """Render the home page with the upload form."""
     return """
     <html>
         <body>
             <form action="/upload" enctype="multipart/form-data" method="post">
-                <input name="file" type="file" />
+                <input name="file" type="file" required />
                 <input type="submit" />
             </form>
         </body>
@@ -52,81 +54,92 @@ async def home() -> HTMLResponse:
     """
 
 @app.post("/upload")
-async def upload_chat(request: Request, file: UploadFile = File(...)):
+async def upload_chat(file: UploadFile = File(...)):
+    """Handle chat file uploads."""
     chat_zip = UPLOAD_FOLDER / file.filename
 
+    # Save the uploaded ZIP file
     with chat_zip.open("wb") as buffer:
         buffer.write(await file.read())
 
+    # Extract the ZIP file
     extracted_folder = chat_zip.with_suffix('')
     with zipfile.ZipFile(chat_zip, 'r') as zip_ref:
         zip_ref.extractall(extracted_folder)
 
+    # Locate the chat file (first .txt file found)
     chat_file = next(extracted_folder.glob("*.txt"), None)
     if not chat_file:
-        return {"error": "No chat file found in the uploaded ZIP."}
+        raise HTTPException(status_code=400, detail="No chat file found in the uploaded ZIP.")
 
+    # Parse chat messages
     messages = parse_chat(chat_file)
+
+    # Upload media files to Firebase Storage
+    media_mapping = await upload_media_to_storage(extracted_folder)
+
+    # Store messages in Firestore with media URLs
+    store_messages_in_firestore(messages, media_mapping)
+
+    # Clean up: delete extracted folder and uploaded ZIP
+    shutil.rmtree(extracted_folder)
+    chat_zip.unlink()
+
+    # Redirect to chat display page
+    return RedirectResponse(url="/chat", status_code=303)
+
+async def upload_media_to_storage(extracted_folder: Path):
+    """Upload media files to Firebase Storage and map URLs."""
+    media_mapping = {}
+
+    for media_file in extracted_folder.glob("*"):
+        # Create a unique name to avoid conflicts
+        blob_name = f"{datetime.datetime.utcnow().timestamp()}_{media_file.name}"
+        blob = bucket.blob(blob_name)
+
+        # Upload the file
+        blob.upload_from_filename(str(media_file))
+
+        # Optionally, make the file public
+        blob.make_public()
+
+        # Store the public URL in the mapping
+        media_mapping[media_file.name] = blob.public_url
+
+    return media_mapping
+
+def store_messages_in_firestore(messages, media_mapping):
+    """Store chat messages in Firestore with media URLs."""
+    messages_ref = db.collection('whatsapp_messages')
+
+    for message in messages:
+        # Ensure timestamp is in ISO format
+        if isinstance(message['timestamp'], datetime.datetime):
+            message['timestamp'] = message['timestamp'].isoformat()
+
+        # Attach media URL if present
+        if message.get("media") in media_mapping:
+            message["media_url"] = media_mapping[message["media"]]
+
+        # Add each message as a new document
+        messages_ref.add(message)
+
+@app.get("/chat", response_class=HTMLResponse)
+async def display_chat(request: Request):
+    """Display chat messages from Firestore ordered by timestamp."""
+    messages_ref = db.collection('whatsapp_messages').order_by('timestamp')
+    docs = messages_ref.stream()
+
+    # Convert Firestore data to a list of messages
+    messages = [
+        {
+            "timestamp": doc.to_dict().get("timestamp"),
+            "sender": doc.to_dict().get("sender"),
+            "message": doc.to_dict().get("message"),
+            "media_url": doc.to_dict().get("media_url")
+        }
+        for doc in docs
+    ]
+    print("Retrieved messages:", messages)
     
-    # Store messages in Firebase
-    for msg in messages:
-        db.collection("whatsapp_chats").add({
-            "timestamp": msg["timestamp"],
-            "sender": msg["sender"],
-            "message": msg["message"],
-            "media": msg["media"]
-        })
-
-    return templates.TemplateResponse("chat.html", {"request": request})
-
-@app.get("/messages")
-async def get_messages(offset: int = 0, limit: int = 25):
-    # Retrieve messages from Firestore sorted by timestamp
-    messages_ref = db.collection("whatsapp_chats").order_by("timestamp", direction=firestore.Query.DESCENDING).offset(offset).limit(limit)
-    messages = messages_ref.stream()
-
-    messages_chunk = []
-    for msg in messages:
-        messages_chunk.append(msg.to_dict())
-
-    return JSONResponse({"messages": messages_chunk})
-
-def parse_chat(chat_file):
-    pattern = r"\[(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})(?:\s*|\u202F)?(AM|PM)?\] ([^:]+): (.+)"
-    messages = []
-
-    try:
-        with open(chat_file, 'r', encoding='utf-8-sig') as f:
-            for line in f:
-                match = re.match(pattern, line)
-                if match:
-                    date, time, am_pm, sender, message = match.groups()
-
-                    try:
-                        timestamp = datetime.strptime(
-                            f"{date} {time} {am_pm}".strip(), 
-                            "%d/%m/%y %I:%M:%S %p" if am_pm else "%d/%m/%y %H:%M:%S"
-                        )
-                    except ValueError:
-                        print(f"Failed to parse: {date} {time} {am_pm}")
-                        continue
-
-                    sender = "You" if sender == "." else sender.strip()
-
-                    messages.append({
-                        "timestamp": timestamp,
-                        "sender": sender,
-                        "message": message.strip(),
-                        "media": None,
-                    })
-                elif "<attached:" in line:
-                    media_file = line.split("<attached:")[1].strip(">\n").strip()
-                    if messages:
-                        messages[-1]["media"] = media_file
-
-    except FileNotFoundError:
-        print(f"Error: The file {chat_file} was not found.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-    return sorted(messages, key=lambda x: x["timestamp"])
+    return templates.TemplateResponse("chat.html", {"request": request, "messages": messages})
