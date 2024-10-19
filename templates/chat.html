@@ -20,6 +20,10 @@
         background-color: #fff;
         border-radius: 8px;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        height: 500px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column-reverse;
       }
       .bubble {
         max-width: 75%;
@@ -42,39 +46,88 @@
         text-align: right;
         margin-top: 5px;
       }
-      .sender {
-        font-weight: bold;
-        margin-bottom: 2px;
-      }
     </style>
   </head>
   <body>
-    <h1 class="text-2xl font-bold mb-4">WhatsApp Chat</h1>
-    <div class="chat-container">
-      <div class="flex flex-col">
-        {% for message in messages %}
-        <div
-          class="message {{ 'sent' if message.sender == 'You' else 'received' }} mb-2"
-        >
-          <div
-            class="{{ 'text-right' if message.sender == 'You' else 'text-left' }}"
-          >
-            <strong>{{ message.sender }}</strong>:
-            <span>{{ message.message }}</span>
-          </div>
-          {% if message.media %}
-          <div class="mt-1">
-            <img
-              src="{{ url_for('chat_uploads', path='WhatsApp Chat - Kareena College Ic/' ~ message.media) }}"
-              alt="Media"
-              class="max-w-xs rounded-lg"
-            />
-          </div>
-          {% endif %}
-          <div class="text-gray-500 text-sm">{{ message.timestamp }}</div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
+    <h1 class="text-2xl font-bold mb-4 text-center">WhatsApp Chat</h1>
+    <div class="chat-container" id="chatContainer"></div>
+
+    <script>
+      let offset = 0; // Tracks how many messages have been loaded
+      const limit = 25; // Load 25 messages per chunk
+      const chatContainer = document.getElementById("chatContainer");
+
+      // Fetch messages from the server
+      async function loadMessages() {
+        const response = await fetch(
+          `/messages?offset=${offset}&limit=${limit}`,
+        );
+        const data = await response.json();
+        return data.messages;
+      }
+
+      // Render messages inside the chat container
+      function renderMessages(messages, prepend = false) {
+        messages.forEach((message) => {
+          const msgDiv = document.createElement("div");
+          msgDiv.classList.add(
+            "bubble",
+            message.sender === "You" ? "sent" : "received",
+            "mb-2",
+          );
+
+          msgDiv.innerHTML = `
+            <div class="${
+              message.sender === "You" ? "text-right" : "text-left"
+            }">
+              <strong>${message.sender}</strong>: <span>${
+                message.message
+              }</span>
+            </div>
+            ${
+              message.media
+                ? `<img src="/chat_uploads/${message.media}" alt="Media" class="max-w-xs rounded-lg mt-1" />`
+                : ""
+            }
+            <div class="text-gray-500 text-sm">${new Date(
+              message.timestamp,
+            ).toLocaleString()}</div>
+          `;
+
+          if (prepend) {
+            chatContainer.prepend(msgDiv); // Prepend for older messages
+          } else {
+            chatContainer.append(msgDiv); // Append for initial load
+          }
+        });
+      }
+
+      // Scroll to bottom on initial load
+      function scrollToBottom() {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      // Load initial messages and scroll to bottom
+      async function initChat() {
+        const messages = await loadMessages();
+        renderMessages(messages);
+        scrollToBottom();
+      }
+
+      // Detect scroll to top for loading older messages
+      chatContainer.addEventListener("scroll", async () => {
+        if (chatContainer.scrollTop === 0) {
+          offset += limit; // Update offset
+          const olderMessages = await loadMessages();
+          if (olderMessages.length > 0) {
+            renderMessages(olderMessages, true); // Prepend older messages
+            chatContainer.scrollTop = 0; // Keep the scroll position
+          }
+        }
+      });
+
+      // Initialize chat on page load
+      initChat();
+    </script>
   </body>
 </html>
