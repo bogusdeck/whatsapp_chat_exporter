@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -37,9 +37,18 @@ async def upload_chat(file: UploadFile = File(...)):
     extracted_folder = chat_zip.with_suffix('')
     with zipfile.ZipFile(chat_zip, 'r') as zip_ref:
         zip_ref.extractall(extracted_folder)
+
+    print(f"Extracted folder : {extracted_folder}")
  
-    chat_file = next(extracted_folder.glob("*.txt"))  
-    messages = parse_chat(chat_file)  
+    chat_file = next(extracted_folder.glob("*.txt"))
+    if not chat_file:
+        return {"error": "No Chat file found in the uploaded ZIP."}
+
+    print(f"chat file found : {chat_file}")
+
+    messages = parse_chat(chat_file)
+
+    print(messages)
 
     return templates.TemplateResponse("chat.html", {"request": {}, "messages": messages})
 
