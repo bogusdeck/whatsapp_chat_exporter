@@ -49,19 +49,29 @@
     </style>
   </head>
   <body>
+    <h1 class="text-2xl font-bold mb-4">WhatsApp Chat</h1>
     <div class="chat-container">
       <div class="flex flex-col">
         {% for message in messages %}
         <div
-          class="flex {{ 'justify-end' if message.sender == 'You' else 'justify-start' }}"
+          class="message {{ 'sent' if message.sender == 'You' else 'received' }} mb-2"
         >
           <div
-            class="bubble {{ 'sent' if message.sender == 'You' else 'received' }}"
+            class="{{ 'text-right' if message.sender == 'You' else 'text-left' }}"
           >
-            <div class="sender">{{ message.sender }}</div>
-            <div>{{ message.message }}</div>
-            <div class="timestamp">{{ message.timestamp }}</div>
+            <strong>{{ message.sender }}</strong>:
+            <span>{{ message.message }}</span>
           </div>
+          {% if message.media %}
+          <div class="mt-1">
+            <img
+              src="{{ url_for('chat_uploads', path='WhatsApp Chat - Kareena College Ic/' ~ message.media) }}"
+              alt="Media"
+              class="max-w-xs rounded-lg"
+            />
+          </div>
+          {% endif %}
+          <div class="text-gray-500 text-sm">{{ message.timestamp }}</div>
         </div>
         {% endfor %}
       </div>
