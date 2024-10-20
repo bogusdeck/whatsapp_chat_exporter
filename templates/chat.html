@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -41,12 +42,14 @@
 
         .sender {
             background-color: #dcf8c6;
-            margin-left: auto; /* Align to the right */
+            margin-left: auto;
+            /* Align to the right */
         }
 
         .receiver {
             background-color: #ffffff;
-            margin-right: auto; /* Align to the left */
+            margin-right: auto;
+            /* Align to the left */
         }
 
         .message img {
@@ -64,20 +67,24 @@
         }
     </style>
 </head>
+
 <body>
     <h1>Chat Messages</h1>
     <div class="chat-container">
         {% for message in messages %}
-            <div class="message {{ 'sender' if message.sender == 'You' else 'receiver' }}">
-                <div>
-                    <strong>{{ message.sender }}:</strong> {{ message.message }} <br>
-                    {% if message.media_url %}
-                        <img src="{{ message.media_url }}" alt="Media">
-                    {% endif %}
-                    <div class="timestamp">{{ message.timestamp }}</div>
-                </div>
+        <div class="message {{ 'sender' if message.sender == 'You' else 'receiver' }}">
+            <div>
+                <strong>{{ message.sender }}:</strong> {{ message.message }} <br>
+                {% if message.media %}
+                {% for media in message.media %}
+                <img src="{{ media }}" alt="Media" />
+                {% endfor %}
+                {% endif %}
+                <div class="timestamp">{{ message.timestamp }}</div>
             </div>
+        </div>
         {% endfor %}
     </div>
 </body>
+
 </html>

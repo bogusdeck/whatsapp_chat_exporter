@@ -48,10 +48,15 @@ def parse_chat(chat_file):
                     if current_message:
                         current_message["media"].append(media_file)
 
-                else:
+                elif current_message:
                     # Handle multiline continuation
-                    if current_message:
+                    # Check if the line is empty to prevent adding unnecessary newlines
+                    if line:
                         current_message["message"] += f"\n{line}"
+                    else:
+                        # If the line is empty, consider it a message break
+                        messages.append(current_message)
+                        current_message = None  # Reset current_message for the next message
 
             # Add the last message if present
             if current_message:

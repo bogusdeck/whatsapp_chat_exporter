@@ -176,7 +176,7 @@ async def display_chat(request: Request):
         }
         for doc in docs
     ]
-    #print("Retrieved messages:", messages)
+    print("Retrieved messages:", messages)
     message_count = len(messages)
     print(f"Total messages Retrieved : {message_count}")
 
