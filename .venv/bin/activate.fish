@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/workspaces/whatsapp_chat_exporter/.venv"
+set -gx VIRTUAL_ENV "/home/manoj/KAAM/deploy-python-fastapi-in-vercel/.venv"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH

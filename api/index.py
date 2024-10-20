@@ -108,21 +108,49 @@ async def upload_media_to_storage(extracted_folder: Path):
 
     return media_mapping
 
+import hashlib
+
+def generate_message_id(message):
+    """Generate a unique hash for a message using consistent fields."""
+    # Normalize the timestamp to a string format for consistency
+    timestamp = (
+        message["timestamp"].isoformat() 
+        if isinstance(message["timestamp"], datetime.datetime) 
+        else message["timestamp"]
+    )
+    content = f"{timestamp}-{message['sender']}-{message['message']}"
+    return hashlib.md5(content.encode()).hexdigest()
+
+def message_exists_in_firestore(message_id):
+    """Check if a message with the given ID already exists in Firestore."""
+    doc_ref = db.collection('whatsapp_messages').document(message_id)
+    return doc_ref.get().exists
+
 def store_messages_in_firestore(messages, media_mapping):
-    """Store chat messages in Firestore with media URLs."""
+    """Store chat messages in Firestore, avoiding duplicates."""
     messages_ref = db.collection('whatsapp_messages')
 
     for message in messages:
-        # Ensure timestamp is in ISO format
+        # Normalize the timestamp and generate a unique message ID
         if isinstance(message['timestamp'], datetime.datetime):
             message['timestamp'] = message['timestamp'].isoformat()
+
+        message_id = generate_message_id(message)
+
+        # Check if the message already exists using the ID
+        if message_exists_in_firestore(message_id):
+            print(f"Skipping duplicate message: {message_id}")
+            continue
 
         # Attach media URL if present
         if message.get("media") in media_mapping:
             message["media_url"] = media_mapping[message["media"]]
 
-        # Add each message as a new document
-        messages_ref.add(message)
+        # Add the message to Firestore using the generated message ID as the document ID
+        messages_ref.document(message_id).set(message)
+        print(f"Uploaded message: {message_id}")
+
+
 
 @app.get("/chat", response_class=HTMLResponse)
 async def display_chat(request: Request):
