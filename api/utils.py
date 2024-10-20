@@ -4,15 +4,24 @@ from datetime import datetime
 def parse_chat(chat_file):
     pattern = r"\[(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})(?:\s*|\u202F)?(AM|PM)?\] ([^:]+): (.+)"
     messages = []
+    count = 0
+    current_message = None  # Store the ongoing message for multiline handling
 
     try:
         with open(chat_file, 'r', encoding='utf-8-sig') as f:
             for line in f:
+                line = line.strip()  # Remove trailing whitespace
+
                 match = re.match(pattern, line)
                 if match:
+                    # If there was a previous message, add it to the messages list
+                    if current_message:
+                        messages.append(current_message)
+                        count += 1
+
                     date, time, am_pm, sender, message = match.groups()
-                    
-                    # Try parsing date and time in DD/MM/YY format
+
+                    # Parse timestamp
                     try:
                         timestamp = datetime.strptime(
                             f"{date} {time} {am_pm}".strip(), 
@@ -21,25 +30,38 @@ def parse_chat(chat_file):
                     except ValueError:
                         print(f"Failed to parse: {date} {time} {am_pm}")
                         continue
-                    
+
                     # Mark messages from yourself as "You"
                     sender = "You" if sender == "." else sender.strip()
 
-                    messages.append({
-                        "timestamp": timestamp,  # Keep as datetime object
+                    # Initialize the current message with data
+                    current_message = {
+                        "timestamp": timestamp,
                         "sender": sender,
                         "message": message.strip(),
-                        "media": None,
-                    })
+                        "media": [],
+                    }
+
                 elif "<attached:" in line:
+                    # Handle media attachments
                     media_file = line.split("<attached:")[1].strip(">\n").strip()
-                    if messages:
-                        messages[-1]["media"] = media_file
+                    if current_message:
+                        current_message["media"].append(media_file)
+
+                else:
+                    # Handle multiline continuation
+                    if current_message:
+                        current_message["message"] += f"\n{line}"
+
+            # Add the last message if present
+            if current_message:
+                messages.append(current_message)
+                count += 1
 
     except FileNotFoundError:
         print(f"Error: The file {chat_file} was not found.")
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    # Sort messages by timestamp (this can be omitted as it's sorted in get_messages)
-    return sorted(messages, key=lambda x: x["timestamp"])
+    # Sort messages by timestamp (optional, as messages should already be in order)
+    return sorted(messages, key=lambda x: x["timestamp"]), count

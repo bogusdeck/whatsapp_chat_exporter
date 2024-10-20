@@ -73,8 +73,10 @@ async def upload_chat(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No chat file found in the uploaded ZIP.")
 
     # Parse chat messages
-    messages = parse_chat(chat_file)
+    messages, count= parse_chat(chat_file)
+    
 
+    print("total number of msgs counted", count)
     # Upload media files to Firebase Storage
     media_mapping = await upload_media_to_storage(extracted_folder)
 
@@ -131,20 +133,26 @@ def store_messages_in_firestore(messages, media_mapping):
     messages_ref = db.collection('whatsapp_messages')
 
     for message in messages:
-        # Normalize the timestamp and generate a unique message ID
+        # Normalize timestamp to ISO format if it's a datetime object
         if isinstance(message['timestamp'], datetime.datetime):
             message['timestamp'] = message['timestamp'].isoformat()
 
+        # Generate a unique message ID
         message_id = generate_message_id(message)
 
-        # Check if the message already exists using the ID
+        # Check for duplicate messages using the message ID
         if message_exists_in_firestore(message_id):
             print(f"Skipping duplicate message: {message_id}")
             continue
 
-        # Attach media URL if present
-        if message.get("media") in media_mapping:
-            message["media_url"] = media_mapping[message["media"]]
+        # Attach media URLs if media is present and found in media_mapping
+        media_list = message.get("media", [])
+        if media_list:
+            media_urls = [
+                media_mapping.get(media, f"Media not found: {media}")
+                for media in media_list
+            ]
+            message["media_urls"] = media_urls
 
         # Add the message to Firestore using the generated message ID as the document ID
         messages_ref.document(message_id).set(message)
@@ -168,6 +176,8 @@ async def display_chat(request: Request):
         }
         for doc in docs
     ]
-    print("Retrieved messages:", messages)
-    
+    #print("Retrieved messages:", messages)
+    message_count = len(messages)
+    print(f"Total messages Retrieved : {message_count}")
+
     return templates.TemplateResponse("chat.html", {"request": request, "messages": messages})
