@@ -17,3 +17,9 @@
 └── main.py                       # Main FastAPI entry point (for Vercel)
 
 ```
+
+uvicorn index:app --reload
+start command
+```
+uvicorn index:app --reload
+```

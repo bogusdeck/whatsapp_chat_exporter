@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 
 def parse_chat(chat_file):
+    from .index import ChatMessage
     pattern = r"\[(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})(?:\s*|\u202F)?(AM|PM)?\] ([^:]+): (.+)"
     messages = []
     count = 0
@@ -35,26 +36,25 @@ def parse_chat(chat_file):
                     sender = "You" if sender == "." else sender.strip()
 
                     # Initialize the current message with data
-                    current_message = {
-                        "timestamp": timestamp,
-                        "sender": sender,
-                        "message": message.strip(),
-                        "media": [],
-                    }
+                    current_message = ChatMessage(
+                        timestamp=timestamp,
+                        sender=sender,
+                        message=message.strip(),
+                        media=[],
+                        media_urls=[]
+                    )
 
                 elif "<attached:" in line:
                     # Handle media attachments
                     media_file = line.split("<attached:")[1].strip(">\n").strip()
                     if current_message:
-                        current_message["media"].append(media_file)
+                        current_message.media.append(media_file)
 
                 elif current_message:
                     # Handle multiline continuation
-                    # Check if the line is empty to prevent adding unnecessary newlines
                     if line:
-                        current_message["message"] += f"\n{line}"
+                        current_message.message += f"\n{line}"
                     else:
-                        # If the line is empty, consider it a message break
                         messages.append(current_message)
                         current_message = None  # Reset current_message for the next message
 
@@ -69,4 +69,4 @@ def parse_chat(chat_file):
         print(f"An error occurred: {e}")
 
     # Sort messages by timestamp (optional, as messages should already be in order)
-    return sorted(messages, key=lambda x: x["timestamp"]), count
+    return sorted(messages, key=lambda x: x.timestamp), count
