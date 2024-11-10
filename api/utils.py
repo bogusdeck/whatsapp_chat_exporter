@@ -1,8 +1,18 @@
 import re
-from datetime import datetime
+import datetime
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
+
+@dataclass
+class ChatMessage:
+    timestamp: datetime.datetime
+    sender: str
+    message: str
+    media: List[str] = None
+    media_urls: List[str] = None
+
 
 def parse_chat(chat_file):
-    from .index import ChatMessage
     pattern = r"\[(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{1,2}:\d{1,2})(?:\s*|\u202F)?(AM|PM)?\] ([^:]+): (.+)"
     messages = []
     count = 0
@@ -22,7 +32,7 @@ def parse_chat(chat_file):
                     date, time, am_pm, sender, message = match.groups()
 
                     try:
-                        timestamp = datetime.strptime(
+                        timestamp = datetime.datetime.strptime(
                             f"{date} {time} {am_pm}".strip(), 
                             "%d/%m/%y %I:%M:%S %p" if am_pm else "%d/%m/%y %H:%M:%S"
                         )
