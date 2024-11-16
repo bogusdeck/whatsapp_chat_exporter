@@ -1,6 +1,6 @@
 import os
 import hashlib
-from fastapi import FastAPI, File, UploadFile, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Request, HTTPException, BackgroundTasks, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -12,7 +12,10 @@ from typing import List, Dict, Tuple
 from firebase_admin import credentials, firestore, storage, initialize_app
 import logging
 from dotenv import load_dotenv
+from starlette.middleware.sessions import SessionMiddleware
 from .utils import parse_chat
+from passlib.context import CryptContext
+from datetime import timedelta
 
 load_dotenv()
 
@@ -71,11 +74,7 @@ class ChatProcessor:
             logger.error(f"Error processing ZIP file: {e}")
             raise HTTPException(status_code=400, detail="Invalid ZIP file")
 
-    async def _parse_and_process_messages(
-        self, 
-        chat_file: Path, 
-        extracted_folder: Path
-    ) -> Tuple[List[Dict], int]:
+    async def _parse_and_process_messages(self, chat_file: Path, extracted_folder: Path) -> Tuple[List[Dict], int]:
         """Parse chat messages and process media files."""
         messages, count = parse_chat(chat_file)
         
@@ -147,23 +146,60 @@ class ChatProcessor:
             logger.error(f"Cleanup error: {e}")
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY"))
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 firebase_client = FirebaseClient()
 chat_processor = ChatProcessor(firebase_client)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def check_password(entered_password: str, stored_password_hash: str) -> bool:
+    return pwd_context.verify(entered_password, stored_password_hash)
+
+async def require_authentication(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(status_code=403, detail="Please log in to access this page")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Render home page with upload form."""
-    return templates.TemplateResponse("index.html", {
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/passwordcheck")
+    return RedirectResponse(url="/chat")
+
+@app.get("/passwordcheck", response_class=HTMLResponse)
+async def password_check(request: Request):
+    """Render the password check page."""
+    return templates.TemplateResponse("password_check.html", {
         "request": request,
-        "title": "WhatsApp Chat Analyzer"
+        "title": "Enter Password"
     })
 
-@app.post("/upload")
+@app.get("/photos", response_class=HTMLResponse, dependencies=[Depends(require_authentication)])
+async def photos_view(request: Request):
+    bucket = storage.bucket()
+    blobs = bucket.list_blobs()  
+    photo_urls = [blob.generate_signed_url(expiration=timedelta(hours=1)) for blob in blobs]
+    return templates.TemplateResponse("photos.html", {"request": request, "photo_urls": photo_urls})
+
+@app.get("/logout")
+async def logout(response: RedirectResponse):
+    response.delete_cookie("session", path="/")  
+    response.headers["Location"] = "/"  
+    return response
+
+@app.post("/passwordcheck")
+async def password_check_post(request: Request, password: str = Form(...)):
+    stored_password_hash = firebase_client.db.collection("passwords").document("user_password").get().to_dict().get("password_hash")
+    
+    if stored_password_hash and check_password(password, stored_password_hash):
+        request.session["authenticated"] = True
+        return RedirectResponse(url="/chat", status_code=303)
+    else:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+@app.post("/upload", dependencies=[Depends(require_authentication)])
 async def upload_chat(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> RedirectResponse:
-    """Handle chat file upload and processing."""
     try:
         messages, count = await chat_processor.process_chat_file(file)
         logger.info(f"Processed {count} messages successfully")
@@ -173,9 +209,8 @@ async def upload_chat(background_tasks: BackgroundTasks, file: UploadFile = File
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process chat file")
 
-@app.get("/chat", response_class=HTMLResponse)
+@app.get("/chat", response_class=HTMLResponse, dependencies=[Depends(require_authentication)])
 async def display_chat(request: Request, count: int = 0, start_after: int = None, start_before: int = None):
-    """Render chat messages with pagination based on msg_no."""
     messages_ref = firebase_client.db.collection("whatsapp_messages").order_by("msg_no", direction=firestore.Query.ASCENDING)
 
     if start_after is not None:
@@ -206,3 +241,4 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         {"request": request, "error": exc.detail},
         status_code=exc.status_code
     )
+

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Masonry effect for images */
+        .masonry {
+            column-count: 1; /* For mobile view */
+            column-gap: 1rem;
+        }
+        @media (min-width: 640px) {
+            .masonry { column-count: 2; } /* Small screens */
+        }
+        @media (min-width: 768px) {
+            .masonry { column-count: 3; } /* Medium screens */
+        }
+        @media (min-width: 1024px) {
+            .masonry { column-count: 4; } /* Large screens */
+        }
+        .masonry-item {
+            display: inline-block;
+            width: 100%;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            border-radius: 0.5rem;
+        }
+        .masonry-item img {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white font-sans min-h-screen flex flex-col items-center p-6">
+    <!-- Back Button -->
+    <div class="w-full max-w-screen-lg flex items-center mb-4">
+        <a href="/chat" class="text-gray-300 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Chat
+        </a>
+        <h1 class="text-2xl font-bold ml-4">All Photos</h1>
+    </div>
+
+    <!-- Masonry Grid for Photos -->
+    <div class="masonry w-full max-w-screen-lg">
+        {% for photo_url in photo_urls %}
+            <div class="masonry-item bg-gray-800 shadow-lg">
+                <img src="{{ photo_url }}" alt="Photo">
+            </div>
+        {% endfor %}
+        {% if not photo_urls %}
+            <p class="text-center">No photos available</p>
+        {% endif %}
+    </div>
+</body>
+
+</html>
