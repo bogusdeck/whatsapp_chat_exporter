@@ -41,66 +41,66 @@ class FirebaseClient:
 class ChatProcessor:
     def __init__(self, firebase_client):
         self.firebase = firebase_client
-        self.upload_folder = Path("chat_uploads")
-        self.upload_folder.mkdir(exist_ok=True)
 
     async def process_chat_file(self, file: UploadFile) -> Tuple[List[Dict], int]:
         """Process uploaded chat ZIP file and return parsed messages."""
-        chat_zip = self.upload_folder / file.filename
         try:
-            await self._save_and_extract_zip(file, chat_zip)
-            extracted_folder = chat_zip.with_suffix('')
-            chat_file = next(extracted_folder.glob("*.txt"), None)
-            
-            if not chat_file:
-                raise HTTPException(status_code=400, detail="No chat file found in ZIP")
-            
-            messages, count = await self._parse_and_process_messages(chat_file, extracted_folder)
-            return messages, count
-            
-        finally:
-            self._cleanup_files(chat_zip)
+            # Directly handle the ZIP file without saving it locally
+            chat_zip_content = await file.read()
 
-    async def _save_and_extract_zip(self, file: UploadFile, chat_zip: Path):
-        """Save and extract the uploaded ZIP file."""
-        try:
-            content = await file.read()
-            chat_zip.write_bytes(content)
-            
-            with zipfile.ZipFile(chat_zip, 'r') as zip_ref:
-                zip_ref.extractall(chat_zip.with_suffix(''))
-                
+            with zipfile.ZipFile(chat_zip_content) as zip_ref:
+                zip_ref.extractall()
+
+                # Find the chat file (assuming it's the first .txt file found)
+                chat_file = next((f for f in zip_ref.namelist() if f.endswith(".txt")), None)
+                if not chat_file:
+                    raise HTTPException(status_code=400, detail="No chat file found in ZIP")
+
+                # Parse and process the messages
+                messages, count = await self._parse_and_process_messages(chat_file, zip_ref)
+                return messages, count
         except Exception as e:
-            logger.error(f"Error processing ZIP file: {e}")
-            raise HTTPException(status_code=400, detail="Invalid ZIP file")
+            logger.error(f"Error processing chat file: {e}")
+            raise HTTPException(status_code=400, detail="Failed to process chat file")
 
-    async def _parse_and_process_messages(self, chat_file: Path, extracted_folder: Path) -> Tuple[List[Dict], int]:
+    async def _parse_and_process_messages(self, chat_file: str, zip_ref: zipfile.ZipFile) -> Tuple[List[Dict], int]:
         """Parse chat messages and process media files."""
+        # Parse the chat messages
         messages, count = parse_chat(chat_file)
-        
-        media_mapping = await self._upload_media_files(extracted_folder)
-        
+
+        # Upload media files directly from the ZIP and get the media URLs
+        media_mapping = await self._upload_media_files(zip_ref)
+
+        # Attach media URLs to the messages
         for msg in messages:
-            if msg.media:
-                msg.media_urls = [media_mapping.get(media) for media in msg.media]
-                
+            if msg.get("media"):
+                msg["media_urls"] = [media_mapping.get(media) for media in msg["media"]]
+
+        # Store the messages in Firestore
         await self._store_messages(messages)
         
         return messages, count
 
-    async def _upload_media_files(self, folder: Path) -> Dict[str, str]:
-        """Upload media files to Firebase Storage."""
+    async def _upload_media_files(self, zip_ref: zipfile.ZipFile) -> Dict[str, str]:
+        """Upload media files from the ZIP directly to Firebase Storage."""
         media_mapping = {}
-        
-        for media_file in folder.glob("*"):
-            if media_file.suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.mp4', '.mp3'}:
-                blob_name = f"{datetime.datetime.utcnow().timestamp()}_{media_file.name}"
-                blob = self.firebase.bucket.blob(blob_name)
-                
+
+        for media_file in zip_ref.namelist():
+            if media_file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.mp4', '.mp3')):
                 try:
-                    blob.upload_from_filename(str(media_file))
+                    # Read the media file content from the ZIP
+                    media_content = zip_ref.read(media_file)
+
+                    # Generate a unique name for the blob
+                    blob_name = f"{datetime.datetime.utcnow().timestamp()}_{media_file}"
+                    blob = self.firebase.bucket.blob(blob_name)
+
+                    # Upload to Firebase Storage
+                    blob.upload_from_string(media_content)
                     blob.make_public()
-                    media_mapping[media_file.name] = blob.public_url
+
+                    # Save the public URL
+                    media_mapping[media_file] = blob.public_url
                 except Exception as e:
                     logger.error(f"Failed to upload {media_file}: {e}")
                     
@@ -135,15 +135,6 @@ class ChatProcessor:
         unique_str = f"{msg['timestamp']}_{msg['sender']}_{msg['message']}"
         return hashlib.md5(unique_str.encode()).hexdigest()
 
-    @staticmethod
-    def _cleanup_files(chat_zip: Path):
-        """Clean up temporary files."""
-        try:
-            if chat_zip.exists():
-                shutil.rmtree(chat_zip.with_suffix(''), ignore_errors=True)
-                chat_zip.unlink()
-        except Exception as e:
-            logger.error(f"Cleanup error: {e}")
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY"))
@@ -166,6 +157,18 @@ async def home(request: Request):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/passwordcheck")
     return RedirectResponse(url="/chat")
+    
+@app.get("/chatupload", response_class=HTMLResponse)
+async def home(request: Request):
+    """Render home page with upload form."""
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "title": "WhatsApp Chat Analyzer"
+        }
+    )
+
 
 @app.get("/passwordcheck", response_class=HTMLResponse)
 async def password_check(request: Request):
