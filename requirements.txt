@@ -4,3 +4,5 @@ jinja2
 uvicorn
 python-dotenv
 firebase-admin
+itsdangerous
+
