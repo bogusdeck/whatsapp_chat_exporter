@@ -5,4 +5,4 @@ uvicorn
 python-dotenv
 firebase-admin
 itsdangerous
-
+passlib
