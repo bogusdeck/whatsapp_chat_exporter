@@ -2,6 +2,8 @@
 .
 ├── /api/
 │   └── index.py                 # FastAPI routes and logic (main logic here)
+   └── secret.py                # checkpassword and make password here
+    └── utils.py                 # chat extraction logic 
 ├── /src/
 │   ├── __main__.py               # Entry point for local runs (optional)
 │   └── index.py                  # Additional logic, if needed
